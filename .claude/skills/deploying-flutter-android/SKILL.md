@@ -1,5 +1,6 @@
 ---
 name: deploying-flutter-android
+user-invocable: true
 description: Android deployment guide for Flutter apps. Use when creating keystores, configuring signing in build.gradle, uploading to Google Play Console, setting up internal/beta/production tracks, configuring ProGuard/R8, or automating with Fastlane. Covers app bundles, staged rollouts, and Play App Signing.
 ---
 
@@ -18,6 +19,13 @@ Guide for deploying Flutter apps to the Google Play Store — focused on decisio
 - Building app bundles (AAB) or APKs
 - Setting up Fastlane for Android CI/CD
 - Troubleshooting signing or build errors
+
+## When NOT to Use This Skill
+
+- **iOS deployment** — Use the iOS/Apple deployment skill instead (completely different signing, provisioning, and App Store Connect flow)
+- **Firebase App Distribution** — Different tool and workflow; not Play Store deployment
+- **Web or desktop builds** — This skill is Android-specific (Play Store, AAB, keystore signing)
+- **Play Console admin tasks** — Account management, payment setup, or team permissions are outside scope
 
 ## Prerequisites
 
@@ -158,7 +166,26 @@ Internal → Closed Beta → Production (10%) → 50% → 100%
 
 ### Data Safety Section (Required)
 
-**WHY this is critical:** Google can remove your app for incomplete or inaccurate data safety declarations. Declare ALL data collection including by third-party SDKs (Firebase Analytics, crash reporting, ad networks).
+**WHY this is critical:** Data safety is the **#1 cause of app rejections and removals** on Google Play. Google can suspend your app without warning for incomplete or inaccurate declarations.
+
+**What to declare — common Flutter SDK data collection:**
+
+| SDK / Feature | Data Collected | Purpose to Declare |
+|---------------|---------------|-------------------|
+| Firebase Analytics | Device ID, app interactions, screen views | Analytics |
+| Firebase Crashlytics | Crash logs, device state, stack traces | App functionality (crash reporting) |
+| Firebase Auth | Email, name, phone (if used) | Account management |
+| Google AdMob | Advertising ID, device info | Advertising |
+| Location services | Precise/approximate location | App functionality or analytics |
+| Camera / Photos | Photos, videos | App functionality |
+
+**Common mistakes that trigger rejection:**
+1. **Not declaring Firebase Analytics** — it collects data even if you never call it explicitly
+2. **Claiming "no data shared"** when using AdMob — ad networks share data by definition
+3. **Missing data deletion disclosure** — you must state whether users can request deletion
+4. **Forgetting Crashlytics** — crash logs contain device identifiers
+
+**Process:** Play Console → App content → Data safety → Complete the form for every data type. Review every third-party SDK's documentation for what it collects. When in doubt, declare it — under-declaration gets rejected, over-declaration does not.
 
 ### Store Listing Metadata
 
@@ -193,6 +220,18 @@ keytool -list -v -keystore ~/upload-keystore.jks -alias upload
 - Use NDK r28+, AGP 8.5.1+, Gradle 8.14+
 - Flutter 3.22+ handles this automatically with recommended tool versions
 - **Check:** If you pinned older NDK/AGP versions, update them
+
+**Verify alignment after building:**
+
+```bash
+# Check if native libraries in your AAB/APK are 16KB aligned
+# WHY: Google Play rejects uploads with misaligned native libs since Nov 2025
+zipalign -c -P 16 -v 4 build/app/outputs/bundle/release/app-release.aab
+
+# For APKs, extract and check .so files directly
+unzip -l app-release.apk | grep '\.so$'
+# Alignment offset should be 0 (mod 16384) for each .so file
+```
 
 ## Fastlane vs Manual: When to Automate
 
