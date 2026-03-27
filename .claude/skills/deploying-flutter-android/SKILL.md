@@ -224,13 +224,17 @@ keytool -list -v -keystore ~/upload-keystore.jks -alias upload
 **Verify alignment after building:**
 
 ```bash
-# Check if native libraries in your AAB/APK are 16KB aligned
 # WHY: Google Play rejects uploads with misaligned native libs since Nov 2025
-zipalign -c -P 16 -v 4 build/app/outputs/bundle/release/app-release.aab
+# IMPORTANT: zipalign only works on APKs, NOT on AABs.
 
-# For APKs, extract and check .so files directly
-unzip -l app-release.apk | grep '\.so$'
-# Alignment offset should be 0 (mod 16384) for each .so file
+# For APKs — check directly:
+zipalign -c -P 16 -v 4 app-release.apk
+# Output shows VERIFIED if aligned, or lists misaligned entries
+
+# For AABs — extract APKs first, then check:
+bundletool build-apks --bundle=app-release.aab --output=app.apks --mode=universal
+unzip -o app.apks -d extracted_apks
+zipalign -c -P 16 -v 4 extracted_apks/universal.apk
 ```
 
 ## Fastlane vs Manual: When to Automate
