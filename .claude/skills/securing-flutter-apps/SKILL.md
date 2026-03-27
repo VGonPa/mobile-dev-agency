@@ -1,12 +1,22 @@
 ---
 name: securing-flutter-apps
 description: Secures Flutter applications using threat-model-driven decisions. Use when implementing secure storage, protecting API keys, adding certificate pinning, validating input, configuring platform security, or auditing app security before release. Starts with threat profile assessment to determine WHICH measures are needed vs overkill.
-user-invocable: false
+user-invocable: true
 ---
 
 # Securing Flutter Apps
 
 Security decisions depend on your app's threat profile. A fitness tracker and a banking app need fundamentally different security postures. This skill helps you make the right decisions — not just copy security code.
+
+> **Common Mistakes This Skill Prevents**
+>
+> - Using `SharedPreferences` for auth tokens (plain text on disk)
+> - Adding AES encryption on top of `flutter_secure_storage` (security theater — it's already encrypted)
+> - Implementing certificate pinning on a consumer app with no rotation plan (bricks the app when certs rotate)
+> - Setting `NSAllowsArbitraryLoads = true` in production (disables all iOS transport security)
+> - Reusing IVs in AES-CBC encryption (breaks the encryption scheme entirely)
+> - Hard-blocking rooted/jailbroken devices instead of warn-and-limit (locks out legitimate users)
+> - Relying on client-side validation alone for security (attackers bypass the app and call the API directly)
 
 ## When to Use This Skill
 
@@ -16,6 +26,16 @@ Security decisions depend on your app's threat profile. A fitness tracker and a 
 - Evaluating whether to add certificate pinning
 - Configuring platform security (iOS/Android)
 - Pre-release security audit
+
+## When NOT to Use This Skill
+
+This skill covers **Flutter client-side mobile app security only**. It does NOT cover:
+
+- **Server-side security** — backend hardening, API rate limiting, WAF configuration, database security
+- **Web app security** — CORS, CSP headers, cookie security, browser-specific vulnerabilities
+- **CI/CD pipeline security** — secrets management in GitHub Actions/Codemagic, build artifact signing
+- **Dependency scanning** beyond `dart pub outdated` — for deep supply chain audits, use dedicated tools (Snyk, Dependabot, OSV-Scanner)
+- **Penetration testing** — this skill provides defensive implementation, not offensive testing methodology
 
 ## Step 1: Determine Your Threat Profile
 
