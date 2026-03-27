@@ -214,7 +214,8 @@ asyncValue.when(
 @riverpod
 Future<UserProfile> userProfile(Ref ref, String userId) async {
   final link = ref.keepAlive(); // Prevent auto-dispose
-  Timer(const Duration(minutes: 5), link.close); // Auto-expire
+  final timer = Timer(const Duration(minutes: 5), link.close);
+  ref.onDispose(timer.cancel); // Clean up if disposed early
   return ref.watch(userRepoProvider).getProfile(userId);
 }
 ```
@@ -252,6 +253,8 @@ Data Source (API, Database)
 - **Services `watch` repos in `build()`** — `build()` is reactive context, dependencies are injected reactively
 - **Repos/Services are `keepAlive`** — shared infrastructure, outlives any screen
 - **Controllers are `autoDispose`** — screen-scoped, prevents stale state and memory leaks
+
+See [REFERENCE.md → Provider Scoping and Overrides](REFERENCE.md#provider-scoping-and-overrides) for environment config and feature-level override patterns.
 
 ## Testing Strategy
 
