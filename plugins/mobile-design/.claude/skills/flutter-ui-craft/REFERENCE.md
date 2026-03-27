@@ -23,7 +23,7 @@ ThemeData _buildTheme(ColorScheme scheme) {
   );
 
   return ThemeData(
-    useMaterial3: true,
+    // useMaterial3 is true by default since Flutter 3.16 — no need to set it
     colorScheme: scheme,
     textTheme: textTheme,
     // Component overrides
@@ -44,7 +44,7 @@ ThemeData _buildTheme(ColorScheme scheme) {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: scheme.surfaceContainerHighest.withAlpha(80),
+      fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.31),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
@@ -664,11 +664,20 @@ class _DragDismissibleState extends State<DragDismissible>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this);
+    // WHY unbounded: SpringSimulation produces pixel values (e.g., 150.0 → 0).
+    // Default AnimationController clamps to [0, 1], breaking the animation.
+    _controller = AnimationController.unbounded(vsync: this);
+    // Single listener set up once — NOT inside _onDragEnd (that leaks listeners)
+    _controller.addListener(_onAnimationTick);
+  }
+
+  void _onAnimationTick() {
+    setState(() => _dragOffset = _controller.value);
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_onAnimationTick);
     _controller.dispose();
     super.dispose();
   }
@@ -687,12 +696,7 @@ class _DragDismissibleState extends State<DragDismissible>
         const SpringDescription(mass: 1, stiffness: 400, damping: 25),
         _dragOffset, 0, velocity / 1000,
       );
-      _controller
-        ..reset()
-        ..animateWith(simulation);
-      _controller.addListener(() {
-        setState(() => _dragOffset = _controller.value);
-      });
+      _controller.animateWith(simulation);
     }
   }
 

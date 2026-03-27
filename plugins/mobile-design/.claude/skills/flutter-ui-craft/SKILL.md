@@ -45,7 +45,7 @@ Design systems exist to make consistent UI inevitable, not aspirational. This sk
 
 ```dart
 final theme = ThemeData(
-  useMaterial3: true,
+  // useMaterial3 is true by default since Flutter 3.16 — no need to set it
   colorScheme: ColorScheme.fromSeed(
     seedColor: const Color(0xFF1B5E20), // Brand green
     brightness: Brightness.light,
