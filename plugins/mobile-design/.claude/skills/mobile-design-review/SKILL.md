@@ -1,12 +1,14 @@
 ---
 name: mobile-design-review
-description: Reviews mobile UI designs and screenshots for usability, accessibility, visual quality, and platform correctness. Use when evaluating mockups, reviewing implemented screens, auditing design systems, checking WCAG compliance, or doing pre-release design QA. Catches generic AI-generated aesthetics, missing screen states, and platform violations.
+description: Use when evaluating mockups or screenshots before development, reviewing implemented screens against design specs, auditing design system compliance, checking WCAG accessibility, doing pre-release design QA, or reviewing AI-generated designs for generic patterns. Covers usability heuristics, accessibility, visual consistency, platform correctness, and anti-slop detection.
 user-invocable: true
 ---
 
 # Mobile Design Review
 
-Good mobile design isn't about following trends — it's about removing friction so the user's intent flows into action without thought. This skill is your quality gate: a systematic audit that catches what eyes glazing over a Figma file will miss.
+## Overview
+
+A systematic design quality gate that audits mobile screens for usability, accessibility, visual consistency, platform correctness, and generic AI aesthetics. Good mobile design removes friction so the user's intent flows into action without thought — this skill catches what eyes glazing over a Figma file will miss.
 
 > **Common Mistakes This Skill Catches**
 >
@@ -67,9 +69,9 @@ Audit each screen against all 10 heuristics. For each, ask the specific question
 
 ---
 
-## Step 2: WCAG Mobile Accessibility Checklist
+## Step 2: WCAG 2.2 Mobile Accessibility Checklist
 
-**Why this matters:** 15-20% of the global population has some form of disability. Accessibility isn't a feature — it's a baseline. On mobile, the stakes are higher because the interaction surface is smaller and more constrained.
+**Why this matters:** 15-20% of the global population has some form of disability. Accessibility isn't a feature — it's a baseline. On mobile, the stakes are higher because the interaction surface is smaller and more constrained. This checklist targets WCAG 2.2 Level AA compliance.
 
 ### Tap Targets
 
@@ -112,6 +114,21 @@ Audit each screen against all 10 heuristics. For each, ask the specific question
 | Reduced motion support | Respects `prefers-reduced-motion` / `AccessibilityFeatures.reduceMotion`. Disables parallax, auto-play, and complex transitions. |
 | No auto-playing media | Video/audio does not auto-play with sound. Users with vestibular disorders need control. |
 | Flashing content | Nothing flashes more than 3 times per second (seizure risk) |
+
+### Text Resizing and Reflow
+
+| Check | Pass Criteria |
+|-------|---------------|
+| Text scaling | Layout survives **200% text scale factor** without overflow, truncation of essential content, or overlapping elements. Test with iOS Dynamic Type and Android font scale. |
+| Reflow | Content reflows without horizontal scrolling at **320dp equivalent width** (WCAG 1.4.10). No two-dimensional scrolling for text content. |
+
+### Pointer and Gesture Accessibility
+
+| Check | Pass Criteria |
+|-------|---------------|
+| Pointer gestures (WCAG 2.5.1) | Any action requiring multi-point or path-based gestures (pinch, swipe, draw) has a **single-pointer alternative** (button, tap). |
+| Pointer cancellation (WCAG 2.5.2) | Actions fire on **up-event** (finger lift), not down-event. User can abort by moving finger off target before releasing. |
+| Dragging movements (WCAG 2.5.7) | Any drag operation (reorder, slider) has a non-dragging alternative (buttons, text input for precise values). |
 
 ---
 
@@ -199,6 +216,8 @@ This check identifies AI-generated design hallmarks and generic aesthetic choice
 | **Symmetrical grid worship** | Everything perfectly centered. Equal spacing everywhere. No visual hierarchy. | Real design uses asymmetry to create focus. Perfect symmetry makes everything equally unimportant. | Lead the eye. One element should dominate. Use whitespace asymmetrically to create breathing room and focus. |
 | **Stock photography** | Generic diverse-team-in-office-smiling photos | Users recognize stock instantly. It erodes trust. | Use illustrations, product screenshots, or real photography. If stock is necessary, choose editorial-style over corporate-posed. |
 | **Gratuitous blur/glass** | Frosted glass effects on every surface | Was trendy in 2022. Now signals "AI-generated mockup." | Use blur sparingly and with purpose (e.g., behind modals to focus attention). Not as a surface treatment. |
+| **Oversized border radius** | 20-30dp radius on every element. Buttons, cards, inputs all look like pills/bubbles. | Uniform rounding removes visual hierarchy and feels toy-like. | Use your design system's radius scale. Different element types deserve different radii (e.g., 8dp for cards, 4dp for inputs, 20dp only for pills/chips). |
+| **Corporate Memphis illustrations** | Flat vector characters with disproportionate limbs and solid colors in empty states and onboarding | The most recognizable "AI/tech startup" illustration style. Users associate it with generic products. | Commission custom illustrations or use a distinctive style that matches your brand. If budget is limited, well-chosen photography or simple iconography beats generic vectors. |
 
 ### The Litmus Test
 
@@ -292,6 +311,8 @@ Ask: **"Is this memorable or just functional?"**
 
 **Why this matters in a design review:** Performance is a design concern. A screen designed with a 40-item grid of full-resolution images is a design that will stutter. Catching these in design review is 10x cheaper than catching them in QA.
 
+**Applicability:** This step applies to **implemented screens** (code review) and **detailed mockups with data specifications**. Skip for early-stage wireframes or screenshots where implementation details are not yet defined.
+
 ### Image Optimization
 
 | Check | Pass Criteria | Failure Example |
@@ -305,7 +326,7 @@ Ask: **"Is this memorable or just functional?"**
 
 | Check | Pass Criteria | Failure Example |
 |-------|---------------|-----------------|
-| Virtualization | Lists with >20 items use virtualized/recycling list (ListView.builder, RecyclerView, LazyVStack) | Rendering 500 list items in a Column/ScrollView (all in memory) |
+| Virtualization | Lists with >20 items use virtualized/recycling list (e.g., `ListView.builder`, `SliverList`) | Rendering 500 list items in a `Column`/`SingleChildScrollView` (all in memory) |
 | Item complexity | List items are flat (minimal nesting). No heavy computation per item. | Each list item contains a nested card with a gradient, shadow, blur, and a chart |
 | Pagination | Infinite lists load in pages (20-50 items). Shows loading indicator at bottom. | Fetching all 10,000 items on first load |
 
@@ -322,6 +343,12 @@ Ask: **"Is this memorable or just functional?"**
 ## Pre-Review Summary Template
 
 After completing all 8 steps, summarize findings using this structure:
+
+### Overall Verdict
+
+**PASS** — Zero Critical issues. Ship with confidence (address Major/Minor in upcoming sprints).
+**CONDITIONAL PASS** — Zero Critical issues, but 3+ Major issues that collectively degrade the experience. Ship only if timeline is immovable; fix Major issues in the next sprint.
+**FAIL** — One or more Critical issues. Do not ship until all Critical issues are resolved and re-reviewed.
 
 ### Critical Issues (must fix before ship)
 - [ ] *List issues that block task completion or violate accessibility law*
