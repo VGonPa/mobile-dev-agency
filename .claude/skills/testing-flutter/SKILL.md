@@ -1,39 +1,56 @@
 ---
 name: testing-flutter
-description: Guides Flutter testing strategy and implementation. Use when deciding what to test, writing unit/widget/integration/golden tests, mocking with mocktail, testing Riverpod state management, or structuring test suites. Covers Arrange-Act-Assert, coverage targets, and common pitfalls.
+description: Guides Flutter testing strategy and implementation. Use when deciding what to test, writing unit/widget/integration/golden tests, mocking with mocktail, testing Riverpod state management, or structuring test suites. Starts with what to test vs skip, then mock boundaries, then patterns.
+user-invocable: true
 ---
 
 # Testing Flutter
 
-Testing strategy, patterns, and decision guide for Flutter applications.
+Testing strategy, mock boundaries, and decision frameworks for Flutter applications. This skill helps you decide WHAT to test and WHERE to mock — not just how to write test syntax.
 
 ## When to Use This Skill
 
-- Deciding what tests to write for new code
+- Deciding what tests to write for new or changed code
 - Choosing between unit, widget, integration, or golden tests
-- Writing mocks with mocktail or mockito
+- Determining where to place mock boundaries
 - Testing Riverpod providers and state management
-- Debugging flaky or failing tests
 - Structuring test files and naming conventions
+- Debugging flaky or failing tests
+
+## When NOT to Use This Skill
+
+- **Setting up CI pipelines** — that's DevOps, not test strategy
+- **Debugging app behavior** — use the debugger or logging, not tests
+- **Learning Riverpod** — read the Riverpod docs first, then come back to test it
+- **Performance profiling** — use Flutter DevTools, not test assertions
 
 ## Testing Philosophy
+
+### The Core Principle
+
+**Test behavior, not implementation.** A good test answers: "does this produce the right output for a given input?" A bad test answers: "does this call method X exactly once?"
+
+Why: Implementation tests break when you refactor. Behavior tests break when actual behavior changes — which is exactly when you want them to break.
 
 ### What to Test (Priority Order)
 
 | Priority | What | Why | Coverage Target |
 |----------|------|-----|-----------------|
-| 1 | Business logic (Services/Use Cases) | Core value, complex rules | >=90% |
-| 2 | State management (Controllers) | User-facing behavior | >=80% |
-| 3 | Repositories (data access) | Data integrity | >=80% |
-| 4 | Widgets (user interactions) | UX correctness | Key flows |
-| 5 | Models (if has logic) | Data consistency | Methods only |
+| 1 | Business logic (Services/Use Cases) | Core value of the app, complex rules | >=90% |
+| 2 | State management (Controllers) | User-facing behavior, state transitions | >=80% |
+| 3 | Repositories (data access) | Data integrity, error handling | >=80% |
+| 4 | Widgets (user interactions) | UX correctness for key flows | Key flows only |
+| 5 | Models (if has logic) | Data consistency | Custom methods only |
 
 ### What NOT to Test
 
-- **Generated code** (`.g.dart`, `.freezed.dart`) - Already tested by package authors
-- **Framework code** - Flutter/Riverpod internals work
-- **Trivial getters** - No logic to verify
-- **UI styling** - Use golden tests sparingly, they're brittle
+- **Generated code** (`.g.dart`, `.freezed.dart`) — already tested by package authors
+- **Framework internals** — Flutter/Riverpod work; don't verify they do
+- **Trivial getters/setters** — no logic means no bugs to catch
+- **UI styling details** — golden tests for visual regression are brittle; use sparingly
+- **Third-party package behavior** — you don't own it, don't test it
+
+**100% coverage is NOT the goal.** Meaningful tests that catch real bugs are. Chasing coverage numbers leads to testing trivial code and ignoring error paths.
 
 ## Test Type Decision Guide
 
@@ -41,81 +58,109 @@ Testing strategy, patterns, and decision guide for Flutter applications.
 "I need to test..."
 
 Business logic, calculations, rules?
-  -> Unit test (fast, isolated)
+  -> Unit test (fast, isolated, most valuable)
 
-State changes in response to actions?
+State changes in response to user actions?
   -> Unit test with ProviderContainer
 
 Widget renders correctly for different states?
   -> Widget test with provider overrides
 
 User flow across multiple screens?
-  -> Integration test (slow, use sparingly)
+  -> Integration test (slow, use sparingly — max 3-5 critical flows)
 
-Visual appearance hasn't changed?
-  -> Golden test (brittle, maintain carefully)
+Visual appearance hasn't regressed?
+  -> Golden test (brittle — only for design-system components)
 ```
 
-## Arrange-Act-Assert Pattern
+## Mock Boundary Strategy
 
-Every test must have three clear sections:
+### Where to Mock (and Why There)
+
+```
+Controller (REAL)       <-- Tests real state transitions
+    |
+Service (REAL)          <-- Tests real business logic
+    |
+Repository (MOCKED)    <-- Mock HERE: this is the I/O boundary
+    |
+Firebase / HTTP / DB    <-- Never touched in tests
+```
+
+**Why mock at the repository boundary:**
+
+1. **Repositories are I/O boundaries.** They talk to Firebase, HTTP, databases — things that are slow, stateful, and non-deterministic. Everything above them is pure logic.
+2. **Mocking higher up skips the logic you care about.** If you mock the service, you're not testing your business rules at all.
+3. **Mocking lower down (e.g., `HttpClient`) couples tests to implementation.** If you switch from Dio to `http`, every test breaks — even though behavior hasn't changed.
+
+**Exception:** Mock at the service level when testing a controller that orchestrates multiple services. You've already tested each service independently.
+
+### Mocking with Mocktail
+
+**Why mocktail over mockito:** No code generation. Mocks are plain Dart classes, readable and fast.
 
 ```dart
-test('should return user when found', () async {
-  // Arrange - Set up mocks, create test data, configure state
-  when(() => mockRepository.getUser('123'))
-      .thenAnswer((_) async => testUser);
+// Create mocks — one line each, at top of test file
+class MockUserRepository extends Mock implements UserRepository {}
 
-  // Act - Execute the single action being tested
-  final result = await service.getUser('123');
+// Fakes: required when using any() matchers
+// Why: Dart needs a real type to pass as fallback when matcher doesn't match
+class FakeUser extends Fake implements User {}
 
-  // Assert - Verify the expected outcome
-  expect(result, equals(testUser));
-});
+void main() {
+  setUpAll(() {
+    registerFallbackValue(FakeUser()); // Register ONCE, before all tests
+  });
+}
 ```
 
-**Why:** Tests become documentation. Anyone reading knows exactly what's being tested.
+**Rule:** Only mock what you own. If you don't control the interface, wrap it in a class you do control, then mock the wrapper.
 
-## Unit Tests
+## The Annotated Test Pattern
 
-### Testing Services / Use Cases
+Every test follows Arrange-Act-Assert (AAA). Here is one fully annotated example — all other test types are variations of this pattern.
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+// WHY setUp + late: each test gets a fresh mock, preventing state bleed
+// between tests. Shared mutable state is the #1 cause of flaky tests.
 class MockUserRepository extends Mock implements UserRepository {}
 
 void main() {
   late UserService service;
-  late MockUserRepository mockRepository;
+  late MockUserRepository mockRepo;
 
   setUp(() {
-    mockRepository = MockUserRepository();
-    service = UserService(mockRepository);
+    mockRepo = MockUserRepository();
+    service = UserService(mockRepo);
   });
 
   group('UserService', () {
     group('getUser', () {
-      test('should return user when repository finds one', () async {
-        // Arrange
-        when(() => mockRepository.getUser('123'))
+      test('should return user when found', () async {
+        // Arrange — configure the mock to return a known value
+        // WHY thenAnswer (not thenReturn): the method returns a Future
+        when(() => mockRepo.getUser('123'))
             .thenAnswer((_) async => testUser);
 
-        // Act
+        // Act — call the ONE thing being tested
         final result = await service.getUser('123');
 
-        // Assert
+        // Assert — verify the BEHAVIOR (output), not the implementation
         expect(result, equals(testUser));
-        verify(() => mockRepository.getUser('123')).called(1);
+        // NOTE: we do NOT verify mockRepo.getUser was called.
+        // That's testing implementation. If the result is correct,
+        // it doesn't matter HOW the service got it.
       });
 
       test('should throw when user not found', () async {
-        // Arrange
-        when(() => mockRepository.getUser('999'))
+        // WHY test error paths: the happy path is obvious.
+        // Bugs hide in error handling, null states, and edge cases.
+        when(() => mockRepo.getUser('999'))
             .thenThrow(UserNotFoundException());
 
-        // Act & Assert
         expect(
           () => service.getUser('999'),
           throwsA(isA<UserNotFoundException>()),
@@ -126,118 +171,45 @@ void main() {
 }
 ```
 
-### Testing Models
+### When to Use `verify()`
+
+Use `verify()` only when the **side effect IS the behavior**:
 
 ```dart
-group('Product', () {
-  test('fromJson creates Product correctly', () {
-    final json = {'id': '1', 'name': 'Test', 'price': 9.99};
-    final product = Product.fromJson(json);
+// GOOD: the purpose of logout IS to clear the session
+test('logout clears session', () async {
+  await service.logout();
+  verify(() => mockRepo.clearSession()).called(1);
+});
 
-    expect(product.id, '1');
-    expect(product.name, 'Test');
-    expect(product.price, 9.99);
-  });
-
-  test('copyWith creates new instance with updated values', () {
-    final product = Product(id: '1', name: 'Test', price: 9.99);
-    final updated = product.copyWith(price: 19.99);
-
-    expect(updated.price, 19.99);
-    expect(product.price, 9.99); // Original unchanged
-  });
+// BAD: verifying internal wiring, not behavior
+test('getUser calls repository', () async {
+  when(() => mockRepo.getUser(any())).thenAnswer((_) async => testUser);
+  await service.getUser('123');
+  verify(() => mockRepo.getUser('123')).called(1); // So what?
 });
 ```
 
-## Widget Tests
+## Riverpod Testing
 
-### Basic Widget Test
-
-```dart
-testWidgets('ProductCard displays product info', (tester) async {
-  // Arrange
-  final product = Product(id: '1', name: 'Widget', price: 9.99);
-
-  // Act
-  await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(body: ProductCard(product: product)),
-    ),
-  );
-
-  // Assert
-  expect(find.text('Widget'), findsOneWidget);
-  expect(find.text('\$9.99'), findsOneWidget);
-});
-
-testWidgets('ProductCard tap triggers callback', (tester) async {
-  bool tapped = false;
-
-  await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(
-        body: ProductCard(
-          product: testProduct,
-          onTap: () => tapped = true,
-        ),
-      ),
-    ),
-  );
-
-  await tester.tap(find.byType(ProductCard));
-  await tester.pump();
-
-  expect(tapped, true);
-});
-```
-
-### Widget Test Timing
-
-| Method | Use When |
-|--------|----------|
-| `pump()` | Advance one frame, control timing precisely |
-| `pump(duration)` | Wait specific time (animations, debounce) |
-| `pumpAndSettle()` | Wait until no more frames scheduled |
-
-**Pitfall:** `pumpAndSettle()` times out if there's an infinite animation (loading spinner). Use `pump()` instead.
-
-### Test Helper for Pumping Widgets
+### ProviderContainer for Unit Tests
 
 ```dart
-// test/helpers/pump_app.dart
-extension WidgetTesterX on WidgetTester {
-  Future<void> pumpApp(Widget widget) async {
-    await pumpWidget(
-      MaterialApp(home: widget),
-    );
-  }
-}
-```
-
-## State Management Testing
-
-### Riverpod with ProviderContainer
-
-```dart
-test('counterProvider increments correctly', () {
-  final container = ProviderContainer();
-  addTearDown(container.dispose);
-
-  expect(container.read(counterProvider), 0);
-  container.read(counterProvider.notifier).increment();
-  expect(container.read(counterProvider), 1);
-});
-
 test('authProvider returns authenticated state', () async {
-  final mockRepository = MockAuthRepository();
-  when(() => mockRepository.getCurrentUser())
+  final mockRepo = MockAuthRepository();
+  when(() => mockRepo.getCurrentUser())
       .thenAnswer((_) async => testUser);
 
   final container = ProviderContainer(
     overrides: [
-      authRepositoryProvider.overrideWithValue(mockRepository),
+      // WHY overrideWithValue: inject mock at the provider level,
+      // so the real provider tree uses our mock for I/O
+      authRepositoryProvider.overrideWithValue(mockRepo),
     ],
   );
+  // WHY addTearDown: ProviderContainers hold state and listeners.
+  // Without disposal: memory leaks, state bleeds across tests,
+  // and you get mysterious flaky failures that pass in isolation.
   addTearDown(container.dispose);
 
   final authState = await container.read(authProvider.future);
@@ -245,12 +217,12 @@ test('authProvider returns authenticated state', () async {
 });
 ```
 
-**Why `addTearDown(container.dispose)`:** Riverpod containers hold state. Without disposal: memory leaks, state bleeds across tests, flaky failures.
-
-### Riverpod Widget Testing
+### Widget Tests with Riverpod
 
 ```dart
 testWidgets('displays user name from provider', (tester) async {
+  // WHY ProviderScope with overrides: same mock boundary strategy,
+  // but now the widget tree reads from overridden providers
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -264,93 +236,26 @@ testWidgets('displays user name from provider', (tester) async {
 });
 ```
 
-## Mocking
+## Widget Test Timing
 
-### Mocktail (Preferred - No Code Generation)
+| Method | Use When | Why |
+|--------|----------|-----|
+| `pump()` | Advance one frame | You need precise control over timing |
+| `pump(duration)` | Animations, debounce | Wait a specific amount of time |
+| `pumpAndSettle()` | Wait for all frames to finish | Convenient but dangerous — see below |
 
-```dart
-import 'package:mocktail/mocktail.dart';
+**Pitfall:** `pumpAndSettle()` times out if there's an infinite animation (loading spinner, shimmer effect). It waits forever for "no more frames," which never happens. Use `pump()` instead and assert against the intermediate state.
 
-// Create mocks
-class MockUserRepository extends Mock implements UserRepository {}
+## Common Pitfalls
 
-// Create fakes for any() matchers
-class FakeUser extends Fake implements User {}
-
-void main() {
-  setUpAll(() {
-    registerFallbackValue(FakeUser());
-  });
-
-  // Use in tests
-  when(() => mockRepo.save(any())).thenAnswer((_) async => true);
-  verify(() => mockRepo.save(any())).called(1);
-}
-```
-
-### Fakes vs Mocks
-
-| Type | Use When | Example |
-|------|----------|---------|
-| Mock | Verify calls, stub returns | `MockUserRepository` |
-| Fake | Need as parameter to `any()` | `FakeUser` |
-
-### Mock at Repository Level
-
-```
-Controller (real)
-    |
-Service (real)         <-- Tests real business logic
-    |
-Repository (MOCKED)   <-- Mock here
-    |
-Firebase (never touched)
-```
-
-## Integration Tests
-
-```dart
-// integration_test/app_test.dart
-import 'package:integration_test/integration_test.dart';
-
-void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
-  testWidgets('login and browse flow', (tester) async {
-    app.main();
-    await tester.pumpAndSettle();
-
-    await tester.enterText(find.byKey(Key('email_field')), 'test@example.com');
-    await tester.enterText(find.byKey(Key('password_field')), 'password123');
-    await tester.tap(find.byKey(Key('login_button')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Welcome'), findsOneWidget);
-  });
-}
-```
-
-## Golden Tests
-
-```dart
-testWidgets('ProductCard matches golden', (tester) async {
-  await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(body: ProductCard(product: testProduct)),
-    ),
-  );
-
-  await expectLater(
-    find.byType(ProductCard),
-    matchesGoldenFile('goldens/product_card.png'),
-  );
-});
-```
-
-```bash
-# Update golden files
-flutter test --update-goldens
-```
+| Pitfall | Why It Hurts | Fix |
+|---------|-------------|-----|
+| Testing implementation, not behavior | Refactoring breaks tests even when behavior is correct | Assert on outputs, not on mock call counts |
+| Too many assertions per test | When it fails, you don't know which behavior broke | One test = one behavior |
+| Shared mutable state | State from test A leaks into test B = flaky | Fresh mocks in `setUp()`, dispose in `addTearDown()` |
+| Not testing error paths | Happy path is obvious; bugs hide in errors and edge cases | Write at least one error test per method |
+| `pumpAndSettle` timeout | Infinite animation present | Use `pump()` and assert intermediate state |
+| Missing `await` | Test passes before async work completes | Always `await` async operations before assertions |
 
 ## Test Organization
 
@@ -359,17 +264,16 @@ flutter test --update-goldens
 ```
 test/
 ├── unit/
-│   ├── models/
-│   ├── repositories/
-│   ├── services/
-│   └── utils/
+│   ├── services/        # Business logic tests (highest priority)
+│   ├── controllers/     # State management tests
+│   └── repositories/    # Data access tests (mocking external APIs)
 ├── widget/
-│   ├── pages/
-│   └── widgets/
-├── integration/
-├── mocks/           # Shared mock classes
-├── fixtures/        # JSON test data
-└── helpers/         # pumpApp, test utilities
+│   ├── pages/           # Full page widget tests
+│   └── widgets/         # Reusable component tests
+├── integration/         # End-to-end flows (keep minimal)
+├── mocks/               # Shared mock classes (DRY across test files)
+├── fixtures/            # JSON test data, factory methods
+└── helpers/             # pumpApp extensions, test utilities
 ```
 
 ### Test Naming
@@ -382,16 +286,7 @@ group('ClassName', () {
 });
 ```
 
-## Common Pitfalls
-
-| Pitfall | Fix |
-|---------|-----|
-| Testing implementation, not behavior | Test "should return user" not "should call repo.get()" |
-| Too many assertions per test | One test = one behavior |
-| Shared mutable state between tests | Each test sets up its own mocks in `setUp()` |
-| Not testing error paths | Happy path is obvious; errors are where bugs hide |
-| Flaky async tests | Missing `await`, wrong pump timing, or state leaking |
-| `pumpAndSettle` timeout | Infinite animation present; use `pump()` instead |
+**Why this format:** When a test fails, the output reads as a sentence: `ClassName > methodName > should return user when found`. You know exactly what broke without reading the test body.
 
 ## Coverage
 
@@ -401,11 +296,6 @@ genhtml coverage/lcov.info -o coverage/html
 open coverage/html/index.html
 ```
 
-| Component | Target | Notes |
-|-----------|--------|-------|
-| Services | >=90% | All business logic paths |
-| Controllers | >=80% | All state transitions |
-| Repositories | >=80% | CRUD + error handling |
-| Widgets | Key flows | Don't chase 100% |
+Use coverage to find **untested error paths**, not to chase a number.
 
-**100% coverage is NOT the goal.** Meaningful tests that catch bugs are.
+See [REFERENCE.md](REFERENCE.md) for full test templates (service tests, controller tests, widget tests, integration tests, golden tests, model tests, test helpers).

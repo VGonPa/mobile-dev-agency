@@ -1,5 +1,6 @@
 ---
 name: integrating-flutter-backend
+user-invocable: true
 description: Backend integration decisions for Flutter apps. Use when choosing between REST/Firebase/GraphQL, selecting HTTP clients, designing repository patterns, implementing error handling strategies, or configuring authentication flows. Decision-first guide — code templates in REFERENCE.md.
 ---
 
@@ -14,6 +15,13 @@ Decision guide for connecting Flutter apps to backend services. Focuses on WHEN 
 - Designing repository pattern and error handling
 - Implementing authentication flows
 - Deciding serialization strategy
+
+## When NOT to Use This Skill
+
+- **State management** (Riverpod, Bloc, Provider) — see `implementing-riverpod` skill
+- **UI patterns** (widgets, layouts, navigation, theming) — see Flutter UI skills
+- **Testing** (unit, widget, integration tests) — see `testing-flutter` skill
+- **Deployment** (CI/CD, app store, Firebase Hosting) — see deployment-specific skills
 
 ## Backend Technology Decision
 
@@ -140,21 +148,7 @@ Future<Either<Failure, User>> getUser(String id) async {
 
 ### Sealed Failure Types
 
-Use Dart 3 sealed classes for exhaustive error handling — the compiler ensures you handle every case:
-
-```dart
-// Sealed = compiler enforces exhaustive matching in switch expressions.
-// Add new failure types and the compiler tells you everywhere to handle them.
-sealed class Failure {
-  final String message;
-  const Failure(this.message);
-}
-class NetworkFailure extends Failure { const NetworkFailure(super.message); }
-class ServerFailure extends Failure { const ServerFailure(super.message); }
-class AuthFailure extends Failure { const AuthFailure(super.message); }
-class NotFoundFailure extends Failure { const NotFoundFailure(super.message); }
-class ValidationFailure extends Failure { const ValidationFailure(super.message); }
-```
+Use Dart 3 sealed classes for exhaustive error handling — the compiler ensures you handle every case. Full hierarchy with `statusCode` and `fieldErrors` fields: [Sealed Failure Hierarchy in REFERENCE.md](REFERENCE.md#sealed-failure-hierarchy).
 
 ## Repository Pattern Decisions
 
@@ -188,21 +182,7 @@ These are the actual hard decisions in Firestore integration — the CRUD code i
 | `json_serializable` | Just need fromJson/toJson, no copyWith | Models need immutability guarantees |
 | Manual fromJson | 1-2 simple models, avoiding build_runner | 5+ models — manual serialization doesn't scale |
 
-```dart
-// Freezed is the default for domain models because it gives you
-// immutability + copyWith + equality + JSON serialization in one annotation.
-// json_serializable alone is sufficient for data-layer DTOs that just
-// shuttle JSON to/from the API without domain behavior.
-@freezed
-class Product with _$Product {
-  const factory Product({
-    required String id,
-    required String name,
-    @JsonKey(name: 'created_at') required DateTime createdAt,
-  }) = _Product;
-  factory Product.fromJson(Map<String, dynamic> json) => _$ProductFromJson(json);
-}
-```
+**Freezed** is the default for domain models because it gives you immutability + copyWith + equality + JSON serialization in one annotation. `json_serializable` alone is sufficient for data-layer DTOs that just shuttle JSON to/from the API without domain behavior. Full Freezed template: [JSON Serialization with Freezed in REFERENCE.md](REFERENCE.md#json-serialization-with-freezed).
 
 ## Real-Time Data Decisions
 

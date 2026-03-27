@@ -2,6 +2,7 @@
 name: flutter-deployer
 description: "Manages Flutter app deployment to iOS App Store and Google Play. Use when building releases, configuring signing, managing app versions, setting up CI/CD, or troubleshooting build failures."
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: 'inherit'
 skills: deploying-flutter-ios, deploying-flutter-android, securing-flutter-apps
 ---
 

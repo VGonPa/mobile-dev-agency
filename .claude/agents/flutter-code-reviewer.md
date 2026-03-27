@@ -1,7 +1,8 @@
 ---
 name: flutter-code-reviewer
 description: "Use PROACTIVELY before committing Flutter code. Reviews for architecture compliance, code quality, performance issues, testing gaps, and project convention adherence. Runs automated checks and produces a prioritized report."
-tools: Read, Write, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash
+model: 'inherit'
 skills: enforcing-flutter-standards, designing-flutter-architecture, testing-flutter, optimizing-flutter-performance
 ---
 

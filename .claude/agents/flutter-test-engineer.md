@@ -2,6 +2,7 @@
 name: flutter-test-engineer
 description: "Use PROACTIVELY after implementing features to write tests. Specializes in unit tests with mocktail/mockito, widget tests, Riverpod testing patterns, golden tests, and achieving high coverage on business logic."
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: 'inherit'
 skills: testing-flutter, enforcing-flutter-standards
 ---
 

@@ -2,6 +2,7 @@
 name: flutter-ui-developer
 description: "Use PROACTIVELY when creating or modifying Flutter UI widgets, screens, or visual components. Specializes in Material Design 3, theming, localization, responsive layouts, and animations."
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: 'inherit'
 skills: building-flutter-widgets, enforcing-flutter-standards, animating-flutter-ui
 ---
 

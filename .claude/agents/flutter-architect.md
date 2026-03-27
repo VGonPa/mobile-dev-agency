@@ -2,6 +2,7 @@
 name: flutter-architect
 description: "Designs Flutter application architecture including feature structure, layer boundaries, state management strategy, and dependency flow. Use when planning new features, evaluating architecture decisions, or reviewing structural changes."
 tools: Read, Glob, Grep, Write, Edit
+model: 'inherit'
 skills: designing-flutter-architecture, implementing-riverpod
 ---
 

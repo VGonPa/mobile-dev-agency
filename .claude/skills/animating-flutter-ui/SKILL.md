@@ -1,5 +1,6 @@
 ---
 name: animating-flutter-ui
+user-invocable: true
 description: Implements Flutter animations and transitions. Use when adding implicit/explicit animations, page transitions, Hero animations, staggered lists, or integrating Rive/Lottie. Covers AnimationController, Curves, Tween, TweenAnimationBuilder, and Material 3 motion patterns.
 ---
 
@@ -35,6 +36,11 @@ Level 2: TweenAnimationBuilder
 Level 3: AnimatedSwitcher
   → Automatic cross-fade/scale when swapping between child widgets.
   → Loading → loaded, tab switching, icon toggling.
+
+Level 3.5: AnimatedBuilder
+  → Rebuilds only the builder function when an Animation changes.
+  → Most common explicit animation widget — pairs with AnimationController.
+  → Use over *Transition widgets when combining multiple effects or custom painting.
 
 Level 4: Explicit Animation (AnimationController)
   → Full control: repeat, reverse, sequence, gesture-driven, stagger.
@@ -97,18 +103,7 @@ class _ExpandableCardState extends State<ExpandableCard> {
 
 ### Choosing the Right Implicit Widget
 
-| I want to animate... | Use | Notes |
-|----------------------|-----|-------|
-| Multiple properties at once | `AnimatedContainer` | Size, color, padding, decoration |
-| Opacity only | `AnimatedOpacity` | Simpler than AnimatedContainer for fade |
-| Position inside a Stack | `AnimatedPositioned` | Requires Stack parent |
-| Padding changes | `AnimatedPadding` | Content area resize |
-| Alignment shifts | `AnimatedAlign` | Widget repositioning within parent |
-| Text style changes | `AnimatedDefaultTextStyle` | Font size, weight, color |
-| Swapping two fixed children | `AnimatedCrossFade` | Has `firstChild`/`secondChild` + `crossFadeState` |
-| Size changes with clipping | `AnimatedSize` | Wraps child, animates its size |
-
-> See [REFERENCE.md](REFERENCE.md) for the full implicit widget API and all available parameters.
+> See the **Implicit Animation Widgets** table in [REFERENCE.md](REFERENCE.md) for the full list of widgets, what they animate, and when to use each one.
 
 ## TweenAnimationBuilder
 
@@ -257,7 +252,19 @@ class M3PageRoute<T> extends PageRouteBuilder<T> {
 }
 ```
 
-**GoRouter integration:** Use `CustomTransitionPage` to apply custom transitions within GoRouter's declarative routing.
+**GoRouter integration:**
+
+```dart
+// CustomTransitionPage applies custom transitions within GoRouter
+GoRoute(
+  path: '/details',
+  pageBuilder: (context, state) => CustomTransitionPage(
+    child: const DetailsScreen(),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+        FadeTransition(opacity: animation, child: child),
+  ),
+)
+```
 
 ## Hero Animations
 
@@ -302,6 +309,8 @@ Hero(
 - Dispose every controller — each list item has its own
 - Cap the delay for large lists (e.g., max 10 items animated, rest appear instantly)
 - Use `Curves.easeOut` for entering elements (M3 convention)
+
+**AnimatedList:** For lists where items are inserted or removed dynamically, use Flutter's built-in `AnimatedList` widget with a `GlobalKey<AnimatedListState>` — it animates insertions and removals automatically via `insertItem()` / `removeItem()`.
 
 > See [REFERENCE.md](REFERENCE.md) for complete staggered list and AnimatedList (insert/remove) implementations.
 

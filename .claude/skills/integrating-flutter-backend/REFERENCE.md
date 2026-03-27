@@ -27,8 +27,8 @@ class ApiClient {
 
   void _setupInterceptors() {
     _dio.interceptors.addAll([
-      _AuthInterceptor(),
-      _RetryInterceptor(),
+      _AuthInterceptor(_dio),
+      _RetryInterceptor(_dio),
       LogInterceptor(requestBody: true, responseBody: true),
     ]);
   }
@@ -43,6 +43,13 @@ For custom REST backends with JWT/OAuth. Do NOT use with Firebase Auth (see SKIL
 
 ```dart
 class _AuthInterceptor extends Interceptor {
+  final Dio _dio;
+
+  // WHY accept Dio instance: we need the configured baseUrl and timeouts
+  // for token refresh and request retry. A bare Dio() has no baseUrl, so
+  // relative paths like '/auth/refresh' would fail.
+  _AuthInterceptor(this._dio);
+
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
     final token = await TokenStorage.getAccessToken();
@@ -59,7 +66,8 @@ class _AuthInterceptor extends Interceptor {
         final newToken = await _refreshToken();
         final opts = err.requestOptions;
         opts.headers['Authorization'] = 'Bearer $newToken';
-        final response = await Dio().fetch(opts);
+        // Use the configured Dio instance so baseUrl and timeouts apply.
+        final response = await _dio.fetch(opts);
         return handler.resolve(response);
       } catch (_) {
         return handler.reject(err);
@@ -70,7 +78,9 @@ class _AuthInterceptor extends Interceptor {
 
   Future<String> _refreshToken() async {
     final refreshToken = await TokenStorage.getRefreshToken();
-    final response = await Dio().post(
+    // Use the configured Dio instance — bare Dio() has no baseUrl and
+    // the relative path '/auth/refresh' would not resolve.
+    final response = await _dio.post(
       '/auth/refresh',
       data: {'refresh_token': refreshToken},
     );
@@ -87,8 +97,9 @@ Retries transient failures. See SKILL.md for idempotency rules.
 
 ```dart
 class _RetryInterceptor extends Interceptor {
+  final Dio _dio;
   final int maxRetries;
-  _RetryInterceptor({this.maxRetries = 3});
+  _RetryInterceptor(this._dio, {this.maxRetries = 3});
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
@@ -98,7 +109,8 @@ class _RetryInterceptor extends Interceptor {
       err.requestOptions.extra['retry_count'] = retryCount + 1;
       await Future.delayed(Duration(seconds: retryCount + 1)); // Linear backoff
       try {
-        final response = await Dio().fetch(err.requestOptions);
+        // Use the configured Dio instance so baseUrl/timeouts/interceptors apply.
+        final response = await _dio.fetch(err.requestOptions);
         return handler.resolve(response);
       } catch (_) {}
     }
@@ -279,6 +291,9 @@ Future<void> main() async {
 ```dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// WHY generic: eliminates repetitive CRUD boilerplate across collections.
+// Each collection only needs to supply fromJson/toJson — all reads, writes,
+// watches, and deletes are handled here once.
 class FirestoreRepository<T> {
   final FirebaseFirestore _firestore;
   final String collectionPath;
@@ -289,9 +304,13 @@ class FirestoreRepository<T> {
     required this.collectionPath,
     required this.fromJson,
     required this.toJson,
+    // WHY optional: allows injecting a mock FirebaseFirestore in tests.
     FirebaseFirestore? firestore,
   }) : _firestore = firestore ?? FirebaseFirestore.instance;
 
+  // WHY withConverter: gives us type-safe reads/writes — no raw Map<String,
+  // dynamic> leaking into business logic. Firestore handles serialization at
+  // the boundary.
   CollectionReference<T> get _collection =>
       _firestore.collection(collectionPath).withConverter<T>(
             fromFirestore: (snap, _) => fromJson(snap.data()!),
@@ -340,6 +359,9 @@ class FirestoreRepository<T> {
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+// WHY wrapper service: centralizes auth logic (sign-in, sign-out, error
+// mapping) so controllers/providers never touch FirebaseAuth directly.
+// Also enables testing via constructor injection of mock FirebaseAuth.
 class AuthService {
   final FirebaseAuth _auth;
   final GoogleSignIn _googleSignIn;
@@ -348,6 +370,8 @@ class AuthService {
       : _auth = auth ?? FirebaseAuth.instance,
         _googleSignIn = googleSignIn ?? GoogleSignIn();
 
+  // WHY authStateChanges stream: lets Riverpod/Bloc reactively rebuild UI
+  // on login/logout without polling or manual state management.
   Stream<User?> get authStateChanges => _auth.authStateChanges();
   User? get currentUser => _auth.currentUser;
 
@@ -383,6 +407,8 @@ class AuthService {
     await Future.wait([_auth.signOut(), _googleSignIn.signOut()]);
   }
 
+  // WHY map codes to user-friendly messages: Firebase error codes are
+  // developer-facing (e.g., 'user-not-found'); never show them raw in UI.
   String _mapAuthCode(String code) => switch (code) {
     'user-not-found' => 'No account found for this email',
     'wrong-password' => 'Wrong password',
@@ -440,18 +466,29 @@ class GraphQLService {
 
   GraphQLService({required String endpoint, String? authToken}) {
     final httpLink = HttpLink(endpoint);
+    // NOTE: authToken is captured by value here. If the token can change
+    // (e.g., after refresh), pass a callback instead:
+    //   AuthLink(getToken: () async => 'Bearer ${await getToken()}')
     final authLink = AuthLink(getToken: () async => 'Bearer $authToken');
+    // WHY concat order: auth runs first, then HTTP — ensures every request
+    // has the Authorization header before it hits the network.
     final link = authLink.concat(httpLink);
 
     _client = GraphQLClient(
+      // WHY InMemoryStore: simple default; swap to HiveStore for offline
+      // persistence if the app needs it.
       link: link,
       cache: GraphQLCache(store: InMemoryStore()),
     );
   }
 
+  // WHY Either return: callers must handle failure explicitly — no silent nulls
+  // or uncaught exceptions leaking to the UI layer.
   Future<Either<Failure, T>> query<T>({
     required String document,
     Map<String, dynamic>? variables,
+    // WHY parser callback: keeps GraphQL response shape decoupled from domain
+    // models — this service never imports model classes.
     required T Function(Map<String, dynamic>) parser,
   }) async {
     try {

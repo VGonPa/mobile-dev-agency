@@ -92,7 +92,11 @@ class PinnedApiClient {
 ```dart
 class AuthInterceptor extends Interceptor {
   final FlutterSecureStorage _storage;
-  final Dio _tokenDio; // Separate Dio instance to avoid interceptor recursion
+  // WHY separate Dio: If we reuse the main Dio instance for the refresh call,
+  // the 401 response from a failed refresh triggers THIS SAME interceptor again,
+  // causing infinite recursion: 401 → refresh → 401 → refresh → stack overflow.
+  // A bare Dio instance has no interceptors, so the refresh call completes cleanly.
+  final Dio _tokenDio;
 
   AuthInterceptor(this._storage) : _tokenDio = Dio();
 
@@ -176,8 +180,17 @@ class BiometricGate {
       return await _auth.authenticate(
         localizedReason: reason,
         options: const AuthenticationOptions(
-          stickyAuth: true,         // Don't cancel if app goes to background briefly
-          biometricOnly: false,     // ALWAYS allow PIN/passcode fallback (accessibility!)
+          // WHY stickyAuth: Without this, the auth dialog is dismissed if the user
+          // briefly switches apps (e.g., to check a 2FA code). That forces them to
+          // restart the entire flow — terrible UX for legitimate users.
+          stickyAuth: true,
+          // WHY not biometricOnly: Not all devices have biometrics, and not all users
+          // CAN use biometrics (accessibility). PIN/passcode fallback ensures no one
+          // is locked out of their own account.
+          biometricOnly: false,
+          // WHY sensitiveTransaction: Tells the OS this is a high-stakes operation
+          // (payment, data access). On Android, this forces strong biometric class
+          // (fingerprint/face, not just device unlock) when available.
           sensitiveTransaction: true,
         ),
       );
@@ -229,10 +242,19 @@ class AppEncryption {
   }
 
   /// Encrypt with fresh IV per operation (CRITICAL: reusing IVs breaks AES-CBC).
+  ///
+  /// WHY AES-CBC (not GCM): The `encrypt` package defaults to CBC. GCM (Galois/Counter Mode)
+  /// provides authenticated encryption (integrity + confidentiality) and is preferred for
+  /// network protocols. But for local storage encryption, CBC with unique IVs is sufficient
+  /// and more widely supported across Flutter encryption packages. If you need tamper
+  /// detection (e.g., detecting if someone modified the ciphertext), switch to GCM or
+  /// add an HMAC over the ciphertext.
   String encrypt(String plainText) {
     final iv = IV.fromSecureRandom(16);
     final encrypted = _encrypter.encrypt(plainText, iv: iv);
-    return '${iv.base64}:${encrypted.base64}'; // IV stored with ciphertext
+    // WHY IV stored with ciphertext: The IV is not secret — it just needs to be unique.
+    // Storing it alongside the ciphertext lets us decrypt without external state.
+    return '${iv.base64}:${encrypted.base64}';
   }
 
   String decrypt(String encryptedText) {
@@ -255,13 +277,23 @@ class AppEncryption {
 
 ```dart
 class InputValidator {
+  // WHY client-side validation exists at all: These validators are NOT security
+  // boundaries — an attacker can skip the Flutter app entirely and call your API.
+  // Client-side validation exists for UX: instant feedback, fewer server round trips,
+  // and clear error messages. The server MUST re-validate everything independently.
+
   /// Email format (UX only — server must re-validate)
+  /// WHY this regex: Simple and intentionally permissive. RFC 5322 email regex is
+  /// 6,000+ chars and still doesn't cover all edge cases. Let the server (which
+  /// actually sends the verification email) do the real validation.
   static bool isValidEmail(String email) {
     return RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
         .hasMatch(email);
   }
 
   /// Password strength (UX feedback — server enforces policy)
+  /// WHY check client-side: So the user sees "needs uppercase" immediately,
+  /// not after a round trip. The server's policy is the source of truth.
   static bool isStrongPassword(String password) {
     if (password.length < 8) return false;
     return password.contains(RegExp(r'[A-Z]')) &&
@@ -271,6 +303,9 @@ class InputValidator {
   }
 
   /// HTML sanitization — prevents XSS if rendering user content in WebViews
+  /// WHY entity encoding: Replacing < > " ' with HTML entities ensures that
+  /// user input is rendered as TEXT, not parsed as HTML/JS. Without this,
+  /// `<script>alert('xss')</script>` would execute in a WebView.
   static String sanitizeHtml(String input) {
     return input
         .replaceAll('<', '&lt;')
@@ -280,6 +315,9 @@ class InputValidator {
   }
 
   /// URL validation — prevents navigation to malicious schemes
+  /// WHY scheme allowlist: Without this, an attacker could pass `javascript:`,
+  /// `file:`, or custom schemes to trigger unintended behavior in WebViews
+  /// or deep link handlers. Only http/https are safe for general navigation.
   static bool isValidUrl(String url) {
     try {
       final uri = Uri.parse(url);

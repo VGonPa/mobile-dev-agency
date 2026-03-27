@@ -1,7 +1,8 @@
 ---
 name: flutter-debugger
 description: "Use PROACTIVELY when Flutter errors occur, tests fail, or unexpected behavior is reported. Analyzes stack traces, identifies root causes, and implements minimal targeted fixes."
-tools: Read, Edit, Glob, Grep, Bash
+tools: Read, Write, Edit, Glob, Grep, Bash
+model: 'inherit'
 skills: enforcing-flutter-standards, optimizing-flutter-performance, implementing-riverpod
 ---
 

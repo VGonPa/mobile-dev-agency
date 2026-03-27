@@ -2,6 +2,7 @@
 name: flutter-state-developer
 description: "Use PROACTIVELY when creating or modifying state management code — Riverpod providers, controllers, or application-layer logic. Specializes in reactive state, async operations, and state architecture."
 tools: Read, Write, Edit, Glob, Grep, Bash
+model: 'inherit'
 skills: implementing-riverpod, enforcing-flutter-standards
 ---
 

@@ -116,18 +116,6 @@ flutter build appbundle --flavor prod --release
 }
 ```
 
-### Debugging R8 Issues
-
-```groovy
-// Temporarily disable to isolate R8 problems
-buildTypes {
-    release {
-        minifyEnabled false   // Disable code shrinking
-        shrinkResources false // Disable resource shrinking
-    }
-}
-```
-
 ## Fastlane Setup
 
 ### Service Account for API Access
@@ -150,6 +138,9 @@ platform :android do
     upload_to_play_store(
       track: 'internal',
       aab: '../build/app/outputs/bundle/release/app-release.aab',
+      # WHY skip_upload_metadata/images/screenshots: Internal track is for
+      # build verification only — no need to update store listing each time.
+      # Uploading metadata on every internal push is slow and unnecessary.
       skip_upload_metadata: true,
       skip_upload_images: true,
       skip_upload_screenshots: true,
@@ -162,6 +153,9 @@ platform :android do
     upload_to_play_store(
       track: 'beta',
       aab: '../build/app/outputs/bundle/release/app-release.aab',
+      # WHY release_status: 'draft': Uploads the AAB but does NOT publish it.
+      # You must manually review and confirm in Play Console before testers see it.
+      # Prevents accidental pushes to beta users from CI.
       release_status: 'draft',
     )
   end
@@ -174,6 +168,8 @@ platform :android do
     upload_to_play_store(
       track: 'production',
       aab: '../build/app/outputs/bundle/release/app-release.aab',
+      # WHY release_status: 'draft': Production drafts require explicit approval
+      # in Play Console. This is a safety net — no accidental production deploys.
       release_status: 'draft',
       rollout: '0.1',  # 10% staged rollout
     )
@@ -189,6 +185,8 @@ platform :android do
     upload_to_play_store(
       track: 'production',
       rollout: percentage,
+      # WHY skip everything: promote only changes the rollout percentage.
+      # No new binary or metadata — just expanding reach to more users.
       skip_upload_apk: true,
       skip_upload_aab: true,
       skip_upload_metadata: true,
@@ -197,21 +195,6 @@ platform :android do
     )
   end
 end
-```
-
-### Run Fastlane
-
-```bash
-sudo gem install fastlane
-cd android
-fastlane init
-
-# Lanes
-fastlane internal                   # Internal testing
-fastlane beta                       # Closed beta
-fastlane production                 # Production (10% rollout)
-fastlane promote percentage:0.5     # Expand to 50%
-fastlane promote percentage:1.0     # Full rollout
 ```
 
 ## CI/CD: GitHub Actions Workflow
@@ -228,6 +211,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # WHY Zulu distribution: Azul Zulu is a free, TCK-certified OpenJDK build
+      # with long-term support. Unlike adoptium/temurin, Zulu provides consistent
+      # builds across all platforms and is the recommended choice for CI pipelines.
+      # WHY Java 17: Android Gradle Plugin 8.x requires JDK 17 minimum.
+      # JDK 21 works too, but 17 is the safest baseline for Flutter compatibility.
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
@@ -239,6 +228,10 @@ jobs:
       - run: flutter pub get
       - run: flutter test
 
+      # WHY base64 for keystore: GitHub Secrets only store text (UTF-8 strings).
+      # A .jks keystore is a binary file. Base64 encodes it as text so it can be
+      # stored as a secret, then decoded back to binary in CI.
+      # To create: base64 -i upload-keystore.jks | pbcopy → paste into secret.
       - name: Decode keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
 
