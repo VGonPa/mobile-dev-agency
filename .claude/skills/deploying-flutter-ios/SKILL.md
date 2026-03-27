@@ -21,10 +21,10 @@ Guide for deploying Flutter apps to the Apple App Store — focused on decisions
 
 ## When NOT to Use This Skill
 
-- **Android deployment** -- use a dedicated Android/Play Store skill instead
-- **iOS UI debugging** -- this skill covers build & release, not runtime UI issues
-- **Simulator testing** -- simulators don't involve code signing or distribution; standard Flutter docs suffice
-- **General Flutter questions** -- for widget development, state management, or non-iOS topics use other skills
+- **Android deployment** — use a dedicated Android/Play Store skill instead
+- **iOS UI debugging** — this skill covers build & release, not runtime UI issues
+- **Simulator testing** — simulators don't involve code signing or distribution; standard Flutter docs suffice
+- **General Flutter questions** — for widget development, state management, or non-iOS topics use other skills
 
 ## Prerequisites
 
