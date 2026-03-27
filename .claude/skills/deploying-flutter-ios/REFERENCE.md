@@ -79,6 +79,10 @@ platform :ios do
     )
 
     upload_to_testflight(
+      # WHY skip_waiting: Build processing on Apple's side takes 10-30 min.
+      # Without this flag Fastlane blocks until processing completes, which
+      # wastes CI minutes and delays the pipeline. The build still processes
+      # — you just don't wait for it.
       skip_waiting_for_build_processing: true,
       distribute_external: true,
       groups: ["Beta Testers"],
@@ -94,6 +98,9 @@ platform :ios do
     build_app(scheme: "Runner", export_method: "app-store")
 
     upload_to_app_store(
+      # WHY force: Skips the interactive HTML preview of App Store metadata
+      # that Fastlane normally opens in your browser. Essential for CI (no
+      # browser) and convenient locally once you trust your metadata.
       force: true,
       submit_for_review: false,
       automatic_release: false,
@@ -108,6 +115,10 @@ platform :ios do
   end
 
   lane :certificates do
+    # WHY readonly: Prevents Match from creating new certificates or profiles
+    # if existing ones are missing. In CI this avoids accidentally revoking a
+    # shared certificate; locally it protects against surprise cert rotation.
+    # Remove readonly only when you intentionally need to regenerate.
     match(type: "appstore", app_identifier: "com.yourcompany.appname", readonly: true)
   end
 end
@@ -151,11 +162,18 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      # WHY subosito/flutter-action: Installs Flutter SDK on the runner and
+      # caches it between runs. Pin the version to avoid surprise breakage
+      # from a new Flutter release mid-pipeline.
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.0'
 
+      # WHY flutter pub get before test: Restores all Dart dependencies so
+      # both tests and the subsequent IPA build use the same resolved versions.
       - run: flutter pub get
+      # WHY run tests in CI: Catches regressions before spending 10+ minutes
+      # on the expensive IPA build step. Fail fast, save macOS runner minutes.
       - run: flutter test
 
       - name: Install certificates
@@ -193,6 +211,49 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: security delete-keychain build.keychain
+```
+
+## ExportOptions.plist Template
+
+Referenced by the CI workflow's `flutter build ipa --export-options-plist` flag. This file tells `xcodebuild` how to sign and package the IPA without interactive prompts.
+
+```xml
+<!-- ios/ExportOptions.plist -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- WHY method "app-store": Produces an IPA suitable for TestFlight and
+       App Store submission. Use "ad-hoc" only for direct device installs. -->
+  <key>method</key>
+  <string>app-store</string>
+
+  <!-- Replace with your Apple Developer Team ID (10-char alphanumeric).
+       Find it at https://developer.apple.com/account → Membership Details. -->
+  <key>teamID</key>
+  <string>YOUR_TEAM_ID</string>
+
+  <!-- WHY uploadSymbols: Sends dSYM files to Apple so that crash reports
+       in App Store Connect are fully symbolicated. -->
+  <key>uploadSymbols</key>
+  <true/>
+
+  <!-- WHY uploadBitcode false: Bitcode is deprecated since Xcode 14.
+       Setting this to true causes build failures on modern toolchains. -->
+  <key>uploadBitcode</key>
+  <false/>
+
+  <!-- Maps each bundle ID to its provisioning profile name.
+       The profile name must match exactly what appears in
+       Apple Developer Portal or Fastlane Match output. -->
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>com.yourcompany.appname</key>
+    <string>match AppStore com.yourcompany.appname</string>
+  </dict>
+</dict>
+</plist>
 ```
 
 ## Encode Secrets for CI

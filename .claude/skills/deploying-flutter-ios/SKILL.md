@@ -1,5 +1,6 @@
 ---
 name: deploying-flutter-ios
+user-invocable: true
 description: iOS deployment guide for Flutter apps. Use when configuring code signing, uploading to TestFlight, submitting to App Store, setting up Fastlane automation, or troubleshooting iOS build issues. Covers certificates, provisioning profiles, Info.plist, entitlements, and privacy manifests.
 ---
 
@@ -17,6 +18,13 @@ Guide for deploying Flutter apps to the Apple App Store — focused on decisions
 - Submitting apps to App Store
 - Setting up Fastlane for iOS CI/CD
 - Troubleshooting code signing or build errors
+
+## When NOT to Use This Skill
+
+- **Android deployment** -- use a dedicated Android/Play Store skill instead
+- **iOS UI debugging** -- this skill covers build & release, not runtime UI issues
+- **Simulator testing** -- simulators don't involve code signing or distribution; standard Flutter docs suffice
+- **General Flutter questions** -- for widget development, state management, or non-iOS topics use other skills
 
 ## Prerequisites
 
@@ -92,18 +100,9 @@ In Xcode → Runner target → General:
 
 **WHY this matters:** Every permission your app requests MUST have a usage description string. Missing descriptions cause **immediate App Store rejection** — Apple's automated checks catch this before human review.
 
-```xml
-<!-- ios/Runner/Info.plist -->
-<!-- WHY descriptive strings: Apple rejects generic text like "This app needs
-     camera access." Explain the specific user benefit. -->
-<key>NSCameraUsageDescription</key>
-<string>Take photos for your workout journal</string>
-
-<key>NSPhotoLibraryUsageDescription</key>
-<string>Choose a profile photo from your library</string>
-```
-
 **Rule:** Write permission strings from the user's perspective — what they gain, not what the app does technically.
+
+**Template:** See `REFERENCE.md` → "Info.plist Common Permissions" for a copy-paste list of common permission keys with example user-benefit strings.
 
 ### Entitlements and Capabilities
 
