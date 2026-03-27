@@ -197,6 +197,8 @@ extension WidgetTesterX on WidgetTester {
 void main() {
   late MockCartService mockService;
 
+  setUpAll(() => registerAllFallbackValues()); // See Shared Mock Definitions below
+
   setUp(() {
     mockService = MockCartService();
   });

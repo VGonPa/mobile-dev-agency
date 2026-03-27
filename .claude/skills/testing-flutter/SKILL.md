@@ -298,4 +298,4 @@ open coverage/html/index.html
 
 Use coverage to find **untested error paths**, not to chase a number.
 
-See [REFERENCE.md](REFERENCE.md) for full test templates (widget tests, integration tests, golden tests, model tests, test helpers).
+See [REFERENCE.md](REFERENCE.md) for full test templates (service tests, controller tests, widget tests, integration tests, golden tests, model tests, test helpers).
