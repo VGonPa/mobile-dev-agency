@@ -111,7 +111,7 @@ Quick reference for which annotation produces which generated file:
 | `@riverpod` | `part 'file.g.dart';` | Provider definitions |
 | `@freezed` / `@Freezed()` | `part 'file.freezed.dart';` | copyWith, equality, pattern matching |
 | `@JsonSerializable()` | `part 'file.g.dart';` | fromJson / toJson |
-| `@riverpod` + `@JsonSerializable()` | Both `part 'file.g.dart';` and annotations share the `.g.dart` | Combined output |
+| `@riverpod` + `@JsonSerializable()` | `part 'file.g.dart';` (shared) | Provider definitions + fromJson/toJson |
 
 **Build command:**
 ```bash
