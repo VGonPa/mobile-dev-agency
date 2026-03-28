@@ -439,15 +439,16 @@ TEST_DURATION_TABLE=""
 
 # ─── HELPER FUNCTIONS ─────────────────────────────────────────────────────────
 
-print_error()   { printf "${RED}  %s${NC}\n" "$1"; }
-print_success() { printf "${GREEN}  %s${NC}\n" "$1"; }
-print_warning() { printf "${YELLOW}  %s${NC}\n" "$1"; }
-print_info()    { printf "  %s\n" "$1"; }
+_print_dest() { [ "${OUTPUT_FORMAT:-text}" = "json" ] && echo "/dev/stderr" || echo "/dev/stdout"; }
+print_error()   { printf "${RED}  %s${NC}\n" "$1" > "$(_print_dest)"; }
+print_success() { printf "${GREEN}  %s${NC}\n" "$1" > "$(_print_dest)"; }
+print_warning() { printf "${YELLOW}  %s${NC}\n" "$1" > "$(_print_dest)"; }
+print_info()    { printf "  %s\n" "$1" > "$(_print_dest)"; }
 print_skip() {
     # When --only or --skip is active, don't print skip messages (noise reduction)
     [ -n "$ONLY_CHECKS" ] && return
     [ -n "$SKIP_CHECKS" ] && return
-    printf "${DIM}  %s (skipped)${NC}\n" "$1"
+    printf "${DIM}  %s (skipped)${NC}\n" "$1" > "$(_print_dest)"
 }
 
 mark_failed() {
