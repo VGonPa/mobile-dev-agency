@@ -343,7 +343,7 @@ else
     fi
     # 4. Latest FVM cached version
     if [ -z "$FLUTTER" ] && [ -d "$HOME/fvm/versions" ]; then
-        FVM_LATEST=$(ls -1d "$HOME/fvm/versions"/*/ 2>/dev/null | sort -V | tail -1)
+        FVM_LATEST=$(ls -1d "$HOME/fvm/versions"/*/ 2>/dev/null | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
         if [ -n "$FVM_LATEST" ] && [ -x "${FVM_LATEST}bin/flutter" ]; then
             FLUTTER="${FVM_LATEST}bin/flutter"
             DART="${FVM_LATEST}bin/dart"
