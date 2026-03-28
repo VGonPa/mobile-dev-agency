@@ -44,15 +44,38 @@ Parse the plan into **atomic tasks** — the smallest independently implementabl
 
 ### Phase 2: Test Verification
 
-1. The implementer (or a new agent if needed) runs:
+**Quality script path resolution** (set at the start of this phase):
+```bash
+QUALITY_SCRIPT="${HOME}/.claude/skills/flutter-dev-squad/scripts/quality-checks.sh"
+```
+
+1. **Fast check** — targeted validation during implementation:
+   ```bash
+   "$QUALITY_SCRIPT" pre-commit \
+     --only format,analyze,tests \
+     --test-dirs "test/unit/<changed> test/widget/<affected>"
    ```
-   flutter test test/unit/          # Only tests related to changes
-   flutter test test/widget/        # Only widget tests affected
-   flutter test test/integration/   # Only integration tests affected
+   - Runs only format, analyze, and test checks (skips coverage, secrets, etc.)
+   - `--test-dirs` restricts test execution to directories affected by changes
+   - Replace `<changed>` and `<affected>` with actual subdirectories related to the task
+   - Quick feedback loop — run after each significant code change
+
+2. **Full check** — comprehensive validation before review:
+   ```bash
+   "$QUALITY_SCRIPT" --only tests,coverage --output json
    ```
-2. If tests fail → implementer fixes and re-runs
-3. If tests pass → implementer reports success and goes idle
-4. **DO NOT MERGE** — close the implementer agent
+   - Runs full test suite with coverage analysis
+   - `--output json` produces structured JSON for agent parsing
+
+3. **Parse JSON results** to determine pass/fail:
+   - `exit_code`: 0 = all checks passed, 1 = failures detected
+   - `failed_checks`: array of check names that failed
+   - Per-check `status` and `violations` for detailed diagnostics
+   - `summary`: human-readable summary string
+
+4. If checks fail → implementer fixes and re-runs (fast check first, then full)
+5. If all checks pass → implementer reports success and goes idle
+6. **DO NOT MERGE** — close the implementer agent
 
 ### Phase 3: Review Team
 
