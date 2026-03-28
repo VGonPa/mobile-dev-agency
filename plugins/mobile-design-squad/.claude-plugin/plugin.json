@@ -2,6 +2,6 @@
   "name": "mobile-design-squad",
   "version": "1.0.0",
   "description": "5 skills + 2 agents for mobile UI/UX design. Covers discovery, UX patterns, visual design, Flutter implementation, and design review. Produces beautiful, accessible, modern interfaces.",
-  "author": {"name": "VGonPa"},
+  "author": {"name": "Víctor González Pacheco"},
   "license": "MIT"
 }
