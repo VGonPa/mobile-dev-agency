@@ -594,9 +594,32 @@ cleanup() {
 trap cleanup EXIT
 
 if should_run "tests"; then
-    if [ "$MODE" = "pre-commit" ] && [ "$NEED_COVERAGE_FLAG" = false ]; then
+    if [ -n "$TEST_DIRS" ]; then
+        # --test-dirs: run tests only in specified directories
+        COVERAGE_FLAG=""
+        if [ "$NEED_COVERAGE_FLAG" = true ]; then
+            COVERAGE_FLAG="--coverage"
+        fi
+        TEST_EXIT=0
+        for _tdir in $TEST_DIRS; do
+            print_info "Running tests in ${_tdir}..."
+            _TDIR_JSON=$(mktemp /tmp/flutter_tdir_XXXXXX.jsonl)
+            if [ -n "$TIMEOUT_CMD" ]; then
+                $TIMEOUT_CMD $TEST_TIMEOUT $FLUTTER test "$_tdir" $COVERAGE_FLAG --no-pub --concurrency=8 --dart-define=TEST_MODE=true $SHARD_FLAGS --reporter json > "$_TDIR_JSON" 2>"${TEST_JSON_FILE}.err"
+            else
+                $FLUTTER test "$_tdir" $COVERAGE_FLAG --no-pub --concurrency=8 --dart-define=TEST_MODE=true $SHARD_FLAGS --reporter json > "$_TDIR_JSON" 2>"${TEST_JSON_FILE}.err"
+            fi
+            _TDIR_EXIT=$?
+            cat "$_TDIR_JSON" >> "$TEST_JSON_FILE"
+            rm -f "$_TDIR_JSON"
+            if [ $_TDIR_EXIT -ne 0 ]; then
+                TEST_EXIT=$_TDIR_EXIT
+            fi
+        done
+        unset _tdir _TDIR_JSON _TDIR_EXIT COVERAGE_FLAG
+    elif [ "$MODE" = "pre-commit" ] && [ "$NEED_COVERAGE_FLAG" = false ]; then
         # Pre-commit: unit tests only, no coverage
-        print_info "Ejecutando tests unitarios (--tags unit)..."
+        print_info "Running unit tests (--tags unit)..."
         if [ -n "$TIMEOUT_CMD" ]; then
             $TIMEOUT_CMD $TEST_TIMEOUT $FLUTTER test --tags unit --no-pub --concurrency=8 --dart-define=TEST_MODE=true $SHARD_FLAGS --reporter json > "$TEST_JSON_FILE" 2>"${TEST_JSON_FILE}.err"
         else
@@ -614,7 +637,7 @@ if should_run "tests"; then
                 fi
             done
             if [ -n "$PATH_TEST_DIRS" ]; then
-                print_info "Ejecutando tests en paths afectados ($PATH_TEST_DIRS)..."
+                print_info "Running tests in affected paths ($PATH_TEST_DIRS)..."
                 PATH_TEST_JSON=$(mktemp /tmp/flutter_path_test_XXXXXX.jsonl)
                 if [ -n "$TIMEOUT_CMD" ]; then
                     $TIMEOUT_CMD $TEST_TIMEOUT $FLUTTER test $PATH_TEST_DIRS --no-pub --concurrency=8 --dart-define=TEST_MODE=true $SHARD_FLAGS --reporter json > "$PATH_TEST_JSON" 2>"${TEST_JSON_FILE}.err"
@@ -631,7 +654,7 @@ if should_run "tests"; then
         fi
     else
         # Pre-merge or coverage requested: all tests with coverage
-        print_info "Ejecutando tests con cobertura..."
+        print_info "Running tests with coverage..."
         if [ -n "$TIMEOUT_CMD" ]; then
             $TIMEOUT_CMD $TEST_TIMEOUT $FLUTTER test --coverage --no-pub --concurrency=8 --dart-define=TEST_MODE=true $SHARD_FLAGS --reporter json > "$TEST_JSON_FILE" 2>"${TEST_JSON_FILE}.err"
         else
