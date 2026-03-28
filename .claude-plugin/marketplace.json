@@ -1,0 +1,29 @@
+{
+  "name": "mobile-dev-agency",
+  "owner": {
+    "name": "VGonPa"
+  },
+  "metadata": {
+    "description": "Multi-plugin repository of specialized AI agent squads for mobile app development.",
+    "version": "1.0.0",
+    "pluginRoot": "./plugins"
+  },
+  "plugins": [
+    {
+      "name": "flutter-dev-squad",
+      "source": "./plugins/flutter-dev-squad",
+      "description": "11 skills + 8 agents for production-grade Flutter development. Architecture, UI, Riverpod, testing, performance, security, deployment.",
+      "version": "2.0.0",
+      "keywords": ["flutter", "dart", "riverpod", "clean-architecture", "testing", "deployment"],
+      "category": "development"
+    },
+    {
+      "name": "mobile-design-squad",
+      "source": "./plugins/mobile-design-squad",
+      "description": "5 skills + 2 agents for mobile UI/UX design. Discovery, UX patterns, visual design, Flutter implementation, design review.",
+      "version": "1.0.0",
+      "keywords": ["design", "ux", "ui", "mobile", "accessibility", "material-design-3"],
+      "category": "design"
+    }
+  ]
+}
