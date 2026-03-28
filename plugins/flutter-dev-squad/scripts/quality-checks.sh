@@ -479,23 +479,63 @@ printf "${BOLD}=================================================================
 printf "\n"
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CHECK 1: dart format
+# CHECKS 1+2 (parallel): dart format + flutter analyze
+# Run concurrently, capture to temp files, print in deterministic order.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+_FMT_OUT=$(mktemp /tmp/qc_fmt_XXXXXX)
+_ANA_OUT=$(mktemp /tmp/qc_ana_XXXXXX)
+_FMT_PID=""
+_ANA_PID=""
+RUN_FORMAT=false
+NEED_ANALYZE=false
+
 if should_run "format"; then
-    if [ "$MODE" = "pre-commit" ] && [ -n "$CHECK_PATHS" ]; then
-        print_info "Verificando formato con dart format ($CHECK_PATHS)..."
-        FORMAT_OUTPUT=$($DART format --set-exit-if-changed --output=none $CHECK_PATHS 2>&1)
-    else
-        print_info "Verificando formato con dart format..."
-        FORMAT_OUTPUT=$($DART format --set-exit-if-changed --output=none lib/ test/ 2>&1)
-    fi
-    FORMAT_EXIT=$?
+    RUN_FORMAT=true
+fi
+if should_run "analyze" || should_run "deadcode"; then
+    NEED_ANALYZE=true
+fi
+
+# Launch format in background
+if [ "$RUN_FORMAT" = true ]; then
+    {
+        if [ "$MODE" = "pre-commit" ] && [ -n "$CHECK_PATHS" ]; then
+            $DART format --set-exit-if-changed --output=none $CHECK_PATHS
+        else
+            $DART format --set-exit-if-changed --output=none lib/ test/
+        fi
+    } > "$_FMT_OUT" 2>&1 &
+    _FMT_PID=$!
+fi
+
+# Launch analyze in background
+if [ "$NEED_ANALYZE" = true ]; then
+    {
+        if [ -n "$TIMEOUT_CMD" ]; then
+            $TIMEOUT_CMD $ANALYZE_TIMEOUT $FLUTTER analyze --no-pub
+        else
+            $FLUTTER analyze --no-pub
+        fi
+    } > "$_ANA_OUT" 2>&1 &
+    _ANA_PID=$!
+fi
+
+# Wait for both
+FORMAT_EXIT=0
+ANALYZE_EXIT=0
+[ -n "$_FMT_PID" ] && { wait $_FMT_PID; FORMAT_EXIT=$?; }
+[ -n "$_ANA_PID" ] && { wait $_ANA_PID; ANALYZE_EXIT=$?; }
+
+# ── Process format results (printed first) ──
+if [ "$RUN_FORMAT" = true ]; then
+    FORMAT_OUTPUT=$(cat "$_FMT_OUT")
     if [ $FORMAT_EXIT -eq 0 ]; then
-        print_success "Format: codigo correctamente formateado"
+        print_success "Format: code correctly formatted"
         FORMAT_STATUS="pass"
     else
         UNFORMATTED=$(echo "$FORMAT_OUTPUT" | grep -c "Changed")
-        print_error "Format: ${UNFORMATTED} archivos necesitan formateo"
+        print_error "Format: ${UNFORMATTED} files need formatting"
         echo "$FORMAT_OUTPUT" | grep "Changed" | head_limit 5
         FORMAT_STATUS="fail"
         mark_failed "Format"
@@ -505,26 +545,12 @@ else
     FORMAT_STATUS="skip"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CHECK 2: flutter analyze
-# Also used by CHECK 7 (dead code) — run if either is requested.
-# ═══════════════════════════════════════════════════════════════════════════════
-NEED_ANALYZE=false
-if should_run "analyze" || should_run "deadcode"; then
-    NEED_ANALYZE=true
-fi
-
+# ── Process analyze results (printed second) ──
 if [ "$NEED_ANALYZE" = true ]; then
-    print_info "Analizando codigo con flutter analyze..."
-    if [ -n "$TIMEOUT_CMD" ]; then
-        ANALYZE_OUTPUT=$($TIMEOUT_CMD $ANALYZE_TIMEOUT $FLUTTER analyze --no-pub 2>&1)
-    else
-        ANALYZE_OUTPUT=$($FLUTTER analyze --no-pub 2>&1)
-    fi
-    ANALYZE_EXIT=$?
+    ANALYZE_OUTPUT=$(cat "$_ANA_OUT")
 
     if [ $ANALYZE_EXIT -eq 124 ]; then
-        print_error "Analyze: TIMEOUT despues de ${ANALYZE_TIMEOUT}s"
+        print_error "Analyze: TIMEOUT after ${ANALYZE_TIMEOUT}s"
         ANALYZE_STATUS="fail"
         mark_failed "Analyze (timeout)"
     else
@@ -534,7 +560,6 @@ if [ "$NEED_ANALYZE" = true ]; then
         ANALYZE_ERRORS=$(echo "$ANALYZE_CLEAN" | grep -c " error " || true)
         ANALYZE_WARNINGS=$(echo "$ANALYZE_CLEAN" | grep -c " warning " || true)
         ANALYZE_INFOS=$(echo "$ANALYZE_CLEAN" | grep -c " info " || true)
-        # Ensure numeric values (strip whitespace)
         ANALYZE_ERRORS=$(echo "$ANALYZE_ERRORS" | tr -d '[:space:]')
         ANALYZE_WARNINGS=$(echo "$ANALYZE_WARNINGS" | tr -d '[:space:]')
         ANALYZE_INFOS=$(echo "$ANALYZE_INFOS" | tr -d '[:space:]')
@@ -545,7 +570,7 @@ if [ "$NEED_ANALYZE" = true ]; then
                 ANALYZE_STATUS="pass"
             else
                 if [ "$ANALYZE_ERRORS" -gt 0 ]; then
-                    print_error "Analyze: ${ANALYZE_ERRORS} errores, ${ANALYZE_WARNINGS} warnings, ${ANALYZE_INFOS} infos"
+                    print_error "Analyze: ${ANALYZE_ERRORS} errors, ${ANALYZE_WARNINGS} warnings, ${ANALYZE_INFOS} infos"
                     echo "$ANALYZE_OUTPUT" | grep " error " | head_limit 5
                     ANALYZE_STATUS="fail"
                     mark_failed "Analyze"
@@ -568,6 +593,8 @@ else
     fi
     ANALYZE_STATUS="skip"
 fi
+
+rm -f "$_FMT_OUT" "$_ANA_OUT"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CHECK 3+4: Tests (+ coverage)
@@ -851,40 +878,102 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CHECK 5: File line count — all lib/*.dart files <= 200 lines
+# CHECKS 5,6,8,9 (parallel): linecount, secrets, noprint, architecture
+# Run grep-based checks concurrently, then process results in order.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+_GREP_DIR=$(mktemp -d /tmp/qc_grep_XXXXXX)
+_LC_PID=""
+_SEC_PID=""
+_NP_PID=""
+_ARCH_PID=""
+
+# ── Launch linecount in background ──
 if should_run "linecount"; then
-    print_info "Verificando longitud de archivos (max. 200 lineas)..."
-    LINECOUNT_OVER=""
-    OVER_COUNT=0
-    _dart_files=$(mktemp)
-    if [ "$MODE" = "pre-commit" ] && [ -n "$CHECK_PATHS" ]; then
-        for p in $CHECK_PATHS; do
-            find "$p" -name "*.dart" -type f ! -name "*.freezed.dart" ! -name "*.g.dart" 2>/dev/null >> "$_dart_files"
-        done
-    else
-        find lib -name "*.dart" -type f ! -name "*.freezed.dart" ! -name "*.g.dart" 2>/dev/null > "$_dart_files"
-    fi
-    while IFS= read -r file; do
-        LINES=$(wc -l < "$file" | tr -d ' ')
-        if [ "$LINES" -gt 200 ]; then
-            OVER_COUNT=$((OVER_COUNT + 1))
-            if [ -z "$LINECOUNT_OVER" ]; then
-                LINECOUNT_OVER="${file}:${LINES}"
-            else
-                LINECOUNT_OVER="${LINECOUNT_OVER}\n${file}:${LINES}"
-            fi
+    (
+        _df=$(mktemp)
+        if [ "$MODE" = "pre-commit" ] && [ -n "$CHECK_PATHS" ]; then
+            for p in $CHECK_PATHS; do
+                find "$p" -name "*.dart" -type f ! -name "*.freezed.dart" ! -name "*.g.dart" 2>/dev/null >> "$_df"
+            done
+        else
+            find lib -name "*.dart" -type f ! -name "*.freezed.dart" ! -name "*.g.dart" 2>/dev/null > "$_df"
         fi
-    done < "$_dart_files"
-    rm -f "$_dart_files"
+        while IFS= read -r file; do
+            LINES=$(wc -l < "$file" | tr -d ' ')
+            if [ "$LINES" -gt 200 ]; then
+                echo "${file}:${LINES}"
+            fi
+        done < "$_df"
+        rm -f "$_df"
+    ) > "$_GREP_DIR/linecount" 2>/dev/null &
+    _LC_PID=$!
+fi
+
+# ── Launch secrets scan in background ──
+if should_run "secrets"; then
+    (
+        if command -v detect-secrets &>/dev/null; then
+            echo "TOOL=detect-secrets"
+            detect-secrets scan --exclude-files '.*\.lock' --exclude-files 'coverage/.*' --exclude-files '\.fvm/.*' .
+        else
+            echo "TOOL=grep"
+            grep -rn --include="*.dart" \
+                -E '(api[_-]?key|secret|password|token)\s*[:=]\s*["\x27][A-Za-z0-9+/=]{16,}' \
+                lib/ 2>/dev/null | grep -v '// ignore-secret' || true
+        fi
+    ) > "$_GREP_DIR/secrets" 2>/dev/null &
+    _SEC_PID=$!
+fi
+
+# ── Launch noprint check in background ──
+if should_run "noprint"; then
+    (
+        if [ "$MODE" = "pre-commit" ] && [ -n "$CHECK_PATHS" ]; then
+            grep -rn --include="*.dart" -E '^\s*print\(' $CHECK_PATHS 2>/dev/null | grep -v '// allow-print' || true
+        else
+            grep -rn --include="*.dart" -E '^\s*print\(' lib/ 2>/dev/null | grep -v '// allow-print' || true
+        fi
+    ) > "$_GREP_DIR/noprint" 2>/dev/null &
+    _NP_PID=$!
+fi
+
+# ── Launch architecture check in background ──
+if should_run "architecture"; then
+    if [ -d "lib/core" ] || [ -d "lib/shared" ]; then
+        (
+            echo "===CORE==="
+            grep -rn --include="*.dart" -E "import\s+'.*/(features|composition)/" lib/core/ 2>/dev/null || true
+            echo "===SHARED==="
+            grep -rn --include="*.dart" -E "import\s+'.*(features|composition)/" lib/shared/ 2>/dev/null || true
+        ) > "$_GREP_DIR/arch" 2>/dev/null &
+        _ARCH_PID=$!
+    fi
+fi
+
+# Wait for all parallel grep checks
+[ -n "$_LC_PID" ] && wait $_LC_PID
+[ -n "$_SEC_PID" ] && wait $_SEC_PID
+[ -n "$_NP_PID" ] && wait $_NP_PID
+[ -n "$_ARCH_PID" ] && wait $_ARCH_PID
+
+# ── Process linecount results ──
+if should_run "linecount"; then
+    _LC_DATA=$(cat "$_GREP_DIR/linecount" 2>/dev/null)
+    OVER_COUNT=0
+    LINECOUNT_OVER=""
+    if [ -n "$_LC_DATA" ]; then
+        OVER_COUNT=$(echo "$_LC_DATA" | wc -l | tr -d ' ')
+        LINECOUNT_OVER="$_LC_DATA"
+    fi
 
     if [ "$OVER_COUNT" -eq 0 ]; then
-        print_success "Line count: todos los archivos <= 200 lineas"
+        print_success "Line count: all files <= 200 lines"
         LINECOUNT_STATUS="pass"
     else
-        print_error "Line count: ${OVER_COUNT} archivos exceden 200 lineas"
-        printf '%b\n' "$LINECOUNT_OVER" | sort -t: -k2 -rn | head_limit 5 | while IFS=: read -r f l; do
-            echo "   ${f}: ${l} lineas"
+        print_error "Line count: ${OVER_COUNT} files exceed 200 lines"
+        echo "$LINECOUNT_OVER" | sort -t: -k2 -rn | head_limit 5 | while IFS=: read -r f l; do
+            echo "   ${f}: ${l} lines"
         done
         LINECOUNT_STATUS="fail"
         mark_failed "Line count"
@@ -894,34 +983,31 @@ else
     LINECOUNT_STATUS="skip"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CHECK 6: detect-secrets scan
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Process secrets results ──
 if should_run "secrets"; then
-    print_info "Escaneando secrets hardcodeados..."
-    if command -v detect-secrets &>/dev/null; then
-        SECRETS_OUTPUT=$(detect-secrets scan --exclude-files '.*\.lock' --exclude-files 'coverage/.*' --exclude-files '\.fvm/.*' . 2>&1)
-        SECRETS_COUNT=$(echo "$SECRETS_OUTPUT" | python3 -c "import sys, json; data=json.load(sys.stdin); print(sum(len(v) for v in data.get('results', {}).values()))" 2>/dev/null || echo "0")
+    _SEC_DATA=$(cat "$_GREP_DIR/secrets" 2>/dev/null)
+    _SEC_TOOL=$(echo "$_SEC_DATA" | head -1 | grep -oP '(?<=TOOL=).*' || echo "grep")
+    _SEC_BODY=$(echo "$_SEC_DATA" | tail -n +2)
+
+    if [ "$_SEC_TOOL" = "detect-secrets" ]; then
+        SECRETS_COUNT=$(echo "$_SEC_BODY" | python3 -c "import sys, json; data=json.load(sys.stdin); print(sum(len(v) for v in data.get('results', {}).values()))" 2>/dev/null || echo "0")
         if [ "$SECRETS_COUNT" = "0" ]; then
-            print_success "Detect-secrets: sin secrets detectados"
+            print_success "Detect-secrets: no secrets detected"
             SECRETS_STATUS="pass"
         else
-            print_error "Detect-secrets: ${SECRETS_COUNT} posibles secrets encontrados"
+            print_error "Detect-secrets: ${SECRETS_COUNT} potential secrets found"
             SECRETS_STATUS="fail"
             mark_failed "Secrets"
         fi
     else
-        # Fallback: basic grep
-        HARDCODED=$(grep -rn --include="*.dart" \
-            -E '(api[_-]?key|secret|password|token)\s*[:=]\s*["\x27][A-Za-z0-9+/=]{16,}' \
-            lib/ 2>/dev/null | grep -v '// ignore-secret' | head_limit 5)
+        HARDCODED="$_SEC_BODY"
         if [ -z "$HARDCODED" ]; then
-            print_success "Secrets (basic scan): sin secrets obvios detectados"
+            print_success "Secrets (basic scan): no obvious secrets detected"
             SECRETS_STATUS="pass"
         else
             HARDCODED_COUNT=$(echo "$HARDCODED" | wc -l | tr -d ' ')
-            print_warning "Secrets (basic scan): ${HARDCODED_COUNT} posibles secrets"
-            echo "$HARDCODED"
+            print_warning "Secrets (basic scan): ${HARDCODED_COUNT} potential secrets"
+            echo "$HARDCODED" | head_limit 5
             SECRETS_STATUS="warn"
         fi
     fi
@@ -930,21 +1016,18 @@ else
     SECRETS_STATUS="skip"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CHECK 7: Dead code — unused imports flagged by analyzer
-# Reuses ANALYZE_OUTPUT from CHECK 2.
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── CHECK 7: Dead code (sequential — depends on analyze output) ──
 if should_run "deadcode"; then
-    print_info "Detectando codigo muerto (unused imports)..."
+    print_info "Detecting dead code (unused imports)..."
     DEADCODE_OUTPUT=$(echo "$ANALYZE_OUTPUT" | grep -E "unused_import|unused_element|dead_code" 2>/dev/null)
     DEADCODE_COUNT=$(echo "$DEADCODE_OUTPUT" | grep -c . 2>/dev/null || echo "0")
     [ -z "$DEADCODE_OUTPUT" ] && DEADCODE_COUNT=0
 
     if [ "$DEADCODE_COUNT" -eq 0 ]; then
-        print_success "Dead code: sin imports o elementos no usados"
+        print_success "Dead code: no unused imports or elements"
         DEADCODE_STATUS="pass"
     else
-        print_warning "Dead code: ${DEADCODE_COUNT} elementos no usados"
+        print_warning "Dead code: ${DEADCODE_COUNT} unused elements"
         echo "$DEADCODE_OUTPUT" | head_limit 5
         [ "$OUTPUT_FORMAT" != "json" ] && [ "$DEADCODE_COUNT" -gt 5 ] && echo "   ... and $((DEADCODE_COUNT - 5)) more"
         DEADCODE_STATUS="warn"
@@ -954,25 +1037,18 @@ else
     DEADCODE_STATUS="skip"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CHECK 8: No print() in lib/ — use a proper logging framework instead
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Process noprint results ──
 if should_run "noprint"; then
-    print_info "Verificando que no hay print() en lib/ (usar logging framework)..."
-    if [ "$MODE" = "pre-commit" ] && [ -n "$CHECK_PATHS" ]; then
-        PRINT_OUTPUT=$(grep -rn --include="*.dart" -E '^\s*print\(' $CHECK_PATHS 2>/dev/null | grep -v '// allow-print' || true)
-    else
-        PRINT_OUTPUT=$(grep -rn --include="*.dart" -E '^\s*print\(' lib/ 2>/dev/null | grep -v '// allow-print' || true)
-    fi
+    PRINT_OUTPUT=$(cat "$_GREP_DIR/noprint" 2>/dev/null)
     NOPRINT_COUNT=$(echo "$PRINT_OUTPUT" | grep -c . 2>/dev/null || echo "0")
     [ -z "$PRINT_OUTPUT" ] && NOPRINT_COUNT=0
 
     if [ "$NOPRINT_COUNT" -eq 0 ]; then
-        print_success "No print(): codigo usa logging framework correctamente"
+        print_success "No print(): code uses logging framework correctly"
         NOPRINT_STATUS="pass"
     else
         NOPRINT_FILES=$(echo "$PRINT_OUTPUT" | cut -d: -f1 | sort -u | wc -l | tr -d ' ')
-        print_warning "No print(): ${NOPRINT_COUNT} llamadas a print() en ${NOPRINT_FILES} archivos"
+        print_warning "No print(): ${NOPRINT_COUNT} print() calls in ${NOPRINT_FILES} files"
         echo "$PRINT_OUTPUT" | head_limit 5
         [ "$OUTPUT_FORMAT" != "json" ] && [ "$NOPRINT_COUNT" -gt 5 ] && echo "   ... and $((NOPRINT_COUNT - 5)) more"
         NOPRINT_STATUS="warn"
@@ -982,40 +1058,27 @@ else
     NOPRINT_STATUS="skip"
 fi
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CHECK 9: Architecture layer enforcement
-# Enforces import direction rules that keep the dependency graph clean:
-#   - lib/core/     must NOT import from features/ or composition/
-#   - lib/shared/   must NOT import from features/ or composition/
-#   - lib/composition/ can import from anywhere (it's the wiring layer)
-# core/ violations → FAIL (hard gate). shared/ violations → WARN (known debt).
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Process architecture results ──
 if should_run "architecture"; then
     if [ ! -d "lib/core" ] && [ ! -d "lib/shared" ]; then
         print_info "Architecture: skipped (no lib/core/ or lib/shared/ found)"
         ARCH_STATUS="skip"
-    else
-        print_info "Verificando reglas de importacion entre capas..."
-
-        # Rule 1: core/ must not import from features/ or composition/
-        ARCH_CORE_OUTPUT=$(grep -rn --include="*.dart" -E "import\s+'.*/(features|composition)/" lib/core/ 2>/dev/null || true)
+    elif [ -f "$_GREP_DIR/arch" ]; then
+        _ARCH_DATA=$(cat "$_GREP_DIR/arch")
+        ARCH_CORE_OUTPUT=$(echo "$_ARCH_DATA" | sed -n '/^===CORE===/,/^===SHARED===/p' | grep -v '^===' || true)
+        ARCH_SHARED_OUTPUT=$(echo "$_ARCH_DATA" | sed -n '/^===SHARED===/,$p' | grep -v '^===' || true)
         ARCH_CORE_COUNT=$(echo "$ARCH_CORE_OUTPUT" | grep -c . 2>/dev/null || echo "0")
         [ -z "$ARCH_CORE_OUTPUT" ] && ARCH_CORE_COUNT=0
-
-        # Rule 2: shared/ must not import from features/ or composition/
-        ARCH_SHARED_OUTPUT=$(grep -rn --include="*.dart" -E "import\s+'.*(features|composition)/" lib/shared/ 2>/dev/null || true)
         ARCH_SHARED_COUNT=$(echo "$ARCH_SHARED_OUTPUT" | grep -c . 2>/dev/null || echo "0")
         [ -z "$ARCH_SHARED_OUTPUT" ] && ARCH_SHARED_COUNT=0
 
         if [ "$ARCH_CORE_COUNT" -gt 0 ]; then
-            # core/ violations are critical — fail the build
             print_error "Architecture: ${ARCH_CORE_COUNT} illegal imports in core/ (must not import features/ or composition/)"
             echo "$ARCH_CORE_OUTPUT" | head_limit 10
             [ "$OUTPUT_FORMAT" != "json" ] && [ "$ARCH_CORE_COUNT" -gt 10 ] && echo "   ... and $((ARCH_CORE_COUNT - 10)) more"
             mark_failed "architecture"
             ARCH_STATUS="fail"
         elif [ "$ARCH_SHARED_COUNT" -gt 0 ]; then
-            # shared/ violations are tracked debt — warn only
             ARCH_SHARED_FILES=$(echo "$ARCH_SHARED_OUTPUT" | cut -d: -f1 | sort -u | wc -l | tr -d ' ')
             print_warning "Architecture: ${ARCH_SHARED_COUNT} imports from features/ or composition/ in shared/ (${ARCH_SHARED_FILES} files — known debt)"
             echo "$ARCH_SHARED_OUTPUT" | head_limit 10
@@ -1025,11 +1088,16 @@ if should_run "architecture"; then
             print_success "Architecture: import direction rules OK"
             ARCH_STATUS="pass"
         fi
+    else
+        print_info "Architecture: skipped (no lib/core/ or lib/shared/ found)"
+        ARCH_STATUS="skip"
     fi
 else
     print_skip "Architecture"
     ARCH_STATUS="skip"
 fi
+
+rm -rf "$_GREP_DIR"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CHECK 10: Code metrics — dart_code_metrics
